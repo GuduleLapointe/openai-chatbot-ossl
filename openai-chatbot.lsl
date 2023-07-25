@@ -29,6 +29,18 @@ say(string message) {
     }
 }
 
+debug(string message) {
+    if(message == "") return;
+    // llOwnerSay("/me debug: " + message);
+    say("DEBUG: " + message);
+}
+
+error_log(string message) {
+    if(message == "") return;
+    llInstantMessage(owner, "ERROR: " + message);
+}
+
+
 integer containsWord(string stack, string needle)
 {
     stack = llToLower(stack);
