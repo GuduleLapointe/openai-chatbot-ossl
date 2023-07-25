@@ -3,28 +3,31 @@
 string DEFAULT_CONTEXT = "OpenSimulator Virtual World";
 // string OPENAI_API_URL = "https://api.openai.com/v1/engines/davinci/completions";
 string OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+integer LISTEN_TIMEOUT = 180; // After timeout, user will need to say the name of the bot again
+integer LOG_LIMIT = 200; // The number of messages to keep in memory. Too low will break continuity, too high will cost more openai tokens (i.e. more money)
 
 string CONTEXT;
 string OPENAI_API_KEY;
 string BOT_NAME;
 string WAKE_UP_NAME;
 integer last_interaction;
-string npc = NULL_KEY;
+key npc = NULL_KEY;
+key owner = NULL_KEY;
+key avatar = NULL_KEY;
 integer initialized = FALSE;
 integer listening = TRUE;
 list message_log;
+float session_cost;
 
-error_log(string message) {
-    if(message == "") return;
-    llOwnerSay("/me debug: " + message);
-    // llSay(0, "/me DEBUG: " + message);
-}
 say(string message) {
     if(message == "") return;
-    // llOwnerSay("/me debug: " + message);
-    if(npc != "") {
+
+    if (npc == NULL_KEY) {
+        string object_name = llGetObjectName();
+        llSetObjectName(BOT_NAME);
         llSay(0, message);
-    } else {
+        llSetObjectName(object_name);
+    } else{
         osNpcSay(npc, 0, message);
     }
 }
@@ -92,7 +95,6 @@ integer request_api(string message) {
         // "temperature", 0
     ];
     if( ! initialized ) args += [ "max_tokens", 1 ];
-
     string json = llList2Json( JSON_OBJECT, args);
     llHTTPRequest(OPENAI_API_URL, [
         HTTP_METHOD, "POST",
@@ -209,24 +211,31 @@ default
     //Listen for chat
     listen(integer channel, string name, key id, string message)
     {
+        // Dont't answer to NPCs
+        if(osIsNpc(id)) return;
+
+        // Dont't answer to objects
+        if( ! llGetDisplayName(id)) return;
+
         if(llSubStringIndex(message, "/") == 0) {
-            error_log("ignoring slash commands");
+            // debug("ignoring slash commands");
             return;
         }
-        if ( listening && ( message == "bye" || message == "stop" ) ) {
-            // Stop listening if the message is "bye"
-            request_api(message + ", thank you for your assistance");
-            listening = FALSE;
-        } else if ( containsWord( message, BOT_NAME ) ){
-            // error_log("got message for me, waking up");
+        // if ( listening && ( message == "bye" || message == "stop" ) ) {
+        //     // Stop listening if the message is "bye"
+        //     request_api(message + ", thank you for your assistance");
+        //     listening = FALSE;
+        // } else
+        if ( containsWord( message, BOT_NAME ) ){
+            // debug("got message for me, waking up");
             listening = TRUE;
-        } else if (llGetUnixTime() - last_interaction > 120) {
+        } else if (llGetUnixTime() - last_interaction > LISTEN_TIMEOUT) {
             listening = FALSE;
         }
 
         if ( listening ) {
             last_interaction = llGetUnixTime();
-            // error_log(name + ": " + message);
+            // debug(name + ": " + message);
             request_api(name + ": " + message);
             // request_api(message);
         }
@@ -247,6 +256,18 @@ default
             return;
         } else {
             string answer = llJsonGetValue(json, ["choices", 0, "message", "content"]);
+            // Manage special answers
+            if(llSubStringIndex(answer, "%not_for_me%") >= 0) {
+                message_log = llDeleteSubList(message_log, -1, -1);
+                return;
+            }
+            else if(llSubStringIndex(answer, "%quit%") >= 0) {
+                answer = str_replace(answer, "%quit%", "");
+                listening = FALSE;
+            }
+            answer = str_replace(answer, "%follow%", "");
+            answer = str_replace(answer, "%sit%", "");
+
             if(answer != "" ) {
                 if( ! initialized ) {
                     initialized = TRUE;
@@ -255,10 +276,18 @@ default
                     return;
                 }
                 string id = llJsonGetValue(json, ["id"]);
-                llSay(0, answer);
+                say(answer);
                 log_message("assistant", answer);
+
+                /**
+                 * Debug code to watch tokens cost
+                 */
+                // integer tokens = (integer)llJsonGetValue(json, ["usage","total_tokens"]);
+                // float cost = tokens * 0.002 / 1000;
+                // session_cost += cost;
+                // debug(tokens + "tokens, cost $" + cost + " (session $" + session_cost + ")");
             } else {
-                error_log("could not understand the answer: " + body);
+                error_log("Could not understand the answer: " + body);
             }
         }
         // llSay(0, "got an answer " + llList2String(jsonList, 0)
@@ -272,11 +301,14 @@ default
         init_api();
     }
 
-    attach(key id)
-    {
-        error_log("attached, reset");
-        init_api();
-    }
+    /**
+     * Disabled, callss init_ap() twice.
+     */
+    // attach(key id)
+    // {
+    //     debug("attached, reset");
+    //     init_api();
+    // }
 
     changed(integer change)
     {
