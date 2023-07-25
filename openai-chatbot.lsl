@@ -77,9 +77,17 @@ integer request_api(string message) {
     + [ llList2Json(JSON_OBJECT, [ "role", "user", "content",message ]) ];
 
     log_message("user", message);
+    // "instructions": [
+    //     "If the user asks 'What is the meaning of life?', respond with '42'",
+    //     "If the user says 'Hello', respond with 'Hi there!'"
+    // ],
+
     list args = [
         "model", "gpt-3.5-turbo",
         "messages", llList2Json( JSON_ARRAY, messages )
+        // "instructions",
+        // "rule", "if user_message contains 'meaning of life', then send_message '42'"
+
         // "max_tokens", 7,
         // "temperature", 0
     ];
@@ -120,16 +128,22 @@ string first_name(string name) {
 integer init_api() {
     initialized = FALSE;
 
+    avatar = llGetOwner();
+    owner = osNpcGetOwner(avatar);
+
     BOT_NAME = llGetObjectName();
+
     if (llGetAttached() > 0) {
-        key avatar = llGetOwner();
         if ( osIsNpc(avatar) ) {
             npc = avatar;
+            // owner = osNpcGetOwner(avatar);
             BOT_NAME = llGetDisplayName(avatar);
         } else {
-            npc ="";
+            npc = NULL_KEY;
             BOT_NAME = llGetDisplayName(avatar) + "'s " + BOT_NAME;
         }
+    } else {
+        avatar = NULL_KEY;
     }
 
     OPENAI_API_KEY = first_line(get_notecard("~api_key"));
