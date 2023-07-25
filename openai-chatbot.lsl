@@ -1,9 +1,63 @@
-//SSL Script
+/**
+ * OpenAI Chatbot (openai-chatbot.lsl)
+ *
+ * This script acts as an AI assistant, powered by OpenAI's GPT-3.5 Turbo
+ * language model, designed to interact with users in an OpenSimulator virtual
+ * world. It listens to chat messages, processes user queries, and responds with
+ * appropriate answers.
+ *
+ * @creator Gudule Lapointe
+ * @version 0.1.0
+ *
+ * Usage:
+ * - Include this script in an object in an OpenSimulator virtual world.
+ * - Create a notecard named "~api_key" in the same object containing the API
+ *   key to access OpenAI's GPT-3.5 Turbo.
+ * - Create a notecard named "~context" in the same object containing the
+ *   initial conversation context for the assistant.
+ * - After initialization, the assistant will listen to user messages
+ *   containing its name and respond accordingly.
+ * - Users can interact with the assistant by addressing it with its name and
+ *   asking questions or giving commands.
+ *
+ * Special Commands (to be interpreted and handled by the AI):
+ * - The script utilizes the AI to recognize certain requests and instructs the
+ *   AI to include specific keywords in the answers. These keywords enable the
+ *   script to process the responses differently.
+ * - "%not_for_me%" will inform the script that the message is not intended
+ *   for it and should not be processed further.
+ * - "%quit%" will instruct the script to end the chat and respond with a
+ *   farewell message.
+ * - "%sit%" or "%follow%" will instruct the script to answer accordingly,
+ *   assuming the user typed the commands with the appropriate syntax for a
+ *   third-party script (e.g., "use" and "follow me" for NPC Manager). In a
+ *   future release, the script could forward the appropriate command to the
+ *   external script which will handle the requested NPC actions.
+ *
+ * Note:
+ * - This script requires an API key to access OpenAI's GPT-3.5 Turbo API. Make
+ *   sure to keep the key secure.
+ * - The script keeps a log of user and assistant interactions, limited to the
+ *   number of messages set by LOG_LIMIT.
+ * - The assistant will listen to chat messages until 180 seconds of
+ *   inactivity or a request to end talking, after which it will stop listening.
+ * - Any message starting with a slash ("/") is ignored as it may indicate a
+ *   command for other purposes.
+ * - The assistant's responses are subject to the capabilities and limitations
+ *   of the GPT-3.5 Turbo language model.
+ * - This version is an early release, and improvements or bug fixes may be
+ *   needed based on user feedback.
+ *
+ * For feedback or issues, contact the author at
+ * https://github.com/gudule-lapointe/ssl_script
+ *
+**/
 
 string DEFAULT_CONTEXT = "OpenSimulator Virtual World";
 // string OPENAI_API_URL = "https://api.openai.com/v1/engines/davinci/completions";
 string OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 integer LISTEN_TIMEOUT = 180; // After timeout, user will need to say the name of the bot again
+integer MESSAGE_LIMIT = 200; // The maximum to process in a message. Additional characters will be truncated.
 integer LOG_LIMIT = 200; // The number of messages to keep in memory. Too low will break continuity, too high will cost more openai tokens (i.e. more money)
 
 string CONTEXT;
@@ -64,7 +118,7 @@ integer containsWord(string stack, string needle)
 
 log_message(string role, string input) {
     if(input == "") return;
-    input = llGetSubString(input, 0, 200);
+    input = llGetSubString(input, 0, MESSAGE_LIMIT);
     message_log += [ llList2Json(JSON_OBJECT, [ "role", role, "content", input ]) ];
     message_log = llList2List(message_log, -LOG_LIMIT, -1);
     // debug("\nbefore " + message_log);
