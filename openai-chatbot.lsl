@@ -61,8 +61,11 @@ integer containsWord(string stack, string needle)
 
 log_message(string role, string input) {
     if(input == "") return;
-    input = llGetSubString(input, 0, 80);
+    input = llGetSubString(input, 0, 200);
     message_log += [ llList2Json(JSON_OBJECT, [ "role", role, "content", input ]) ];
+    message_log = llList2List(message_log, -LOG_LIMIT, -1);
+    // debug("\nbefore " + message_log);
+    // debug("\nafter " + trunc);
 }
 
 integer request_api(string message) {
