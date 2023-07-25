@@ -33,7 +33,7 @@ integer containsWord(string stack, string needle)
 {
     stack = llToLower(stack);
     needle = llToLower(needle);
-    list separators = [ " ", ",", "-", ".", "?", "!", ":", ";", "_" ];
+    list separators = [ " ", ",", "-", ".", "?", "!", ":", ";", "_", "'" ];
     list needle_bits = llParseString2List(needle, separators, []);
     list stack_bits = llParseString2List(stack, separators, []);
     //Loop through the list of needle_bits
