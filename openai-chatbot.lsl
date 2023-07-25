@@ -177,6 +177,25 @@ integer init_api() {
     return TRUE;
 }
 
+string str_replace(string src, string from, string to)
+{//replaces all occurrences of 'from' with 'to' in 'src'.
+    integer len = (~-(llStringLength(from)));
+    if(~len)
+    {
+        string  buffer = src;
+        integer b_pos = -1;
+        integer to_len = (~-(llStringLength(to)));
+        @loop; //instead of a while loop, saves 5 bytes (and run faster).
+        integer to_pos = ~llSubStringIndex(buffer, from);
+        if(to_pos)
+        {
+            buffer = llGetSubString(src = llInsertString(llDeleteSubString(src, b_pos -= to_pos, b_pos + len), b_pos, to), (-~(b_pos += to_len)), 0x8000);
+            jump loop;
+        }
+    }
+    return src;
+}
+
 //Initialize
 default
 {
