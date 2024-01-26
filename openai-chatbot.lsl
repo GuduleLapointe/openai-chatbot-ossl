@@ -7,8 +7,12 @@
  * world. It listens to chat messages, processes user queries, and responds
  * with appropriate answers.
  *
+ * It can work with the original ChatGTP as well as with other implementations
+ * compatible with OpenAI API like text-generation-webui.
+ *
+ *
  * @creator Gudule Lapointe @speculoos.world:8002
- * @version 0.1.0
+ * @version 0.2.0
  * @language LSL
  * @requires OSSL
  * @license AGPLv3
@@ -66,11 +70,14 @@
 **/
 
 string DEFAULT_CONTEXT = "OpenSimulator Virtual World";
-// string OPENAI_API_URL = "https://api.openai.com/v1/engines/davinci/completions";
 string OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+string LLM_MODEL = "gpt-3.5-turbo";
+string LLM_CHARACTER;
+
 integer LISTEN_TIMEOUT = 180; // After timeout, user will need to say the name of the bot again
-integer MESSAGE_LIMIT = 200; // The maximum to process in a message. Additional characters will be truncated.
+integer MESSAGE_LIMIT = 400; // The maximum to process in a message. Additional characters will be truncated.
 integer LOG_LIMIT = 200; // The number of messages to keep in memory. Too low will break continuity, too high will cost more openai tokens (i.e. more money)
+// integer MAX_TOKENS = 2048;
 
 string CONTEXT;
 string OPENAI_API_KEY;
@@ -84,6 +91,8 @@ integer initialized = FALSE;
 integer listening = TRUE;
 list message_log;
 float session_cost;
+
+string configFile = "~config";
 
 say(string message) {
     if(message == "") return;
@@ -100,8 +109,8 @@ say(string message) {
 
 debug(string message) {
     if(message == "") return;
-    // llOwnerSay("/me debug: " + message);
-    say("DEBUG: " + message);
+    llOwnerSay("/me debug: " + message);
+    // say("DEBUG: " + message);
 }
 
 error_log(string message) {
@@ -152,15 +161,21 @@ integer request_api(string message) {
     // ],
 
     list args = [
-        "model", "gpt-3.5-turbo",
+        "model", LLM_MODEL,
         "messages", llList2Json( JSON_ARRAY, messages )
+        // "max_tokens", MAX_TOKENS,
         // "instructions",
         // "rule", "if user_message contains 'meaning of life', then send_message '42'"
 
-        // "max_tokens", 7,
         // "temperature", 0
     ];
-    if( ! initialized ) args += [ "max_tokens", 1 ];
+
+    /* Characters disabled for now, erratic behavious */
+    if( LLM_CHARACTER != "" ) args += [ 
+        "mode", "chat",
+        "character", LLM_CHARACTER
+    ];
+    // if( ! initialized ) args += [ "max_tokens", 1 ];
     string json = llList2Json( JSON_OBJECT, args);
     llHTTPRequest(OPENAI_API_URL, [
         HTTP_METHOD, "POST",
@@ -170,6 +185,7 @@ integer request_api(string message) {
 
     return TRUE;
 }
+
 string first_line(string input) {
     list lines = llParseString2List(input, ["\n"], []);
     string firstLine = llList2String(lines, 0);
@@ -180,7 +196,7 @@ string get_notecard(string notecard) {
     // Check if notecard is present
     if (llGetInventoryType(notecard) != INVENTORY_NOTECARD)
     {
-        llWhisper(0, "/me could not find " + notecard);
+        // debug("could not find " + notecard);
         return "";
     }
 
@@ -194,6 +210,9 @@ string first_name(string name) {
 }
 
 integer init_api() {
+
+    get_config();
+    
     initialized = FALSE;
 
     avatar = llGetOwner();
@@ -214,7 +233,8 @@ integer init_api() {
         avatar = NULL_KEY;
     }
 
-    OPENAI_API_KEY = first_line(get_notecard("~api_key"));
+    say("initializing");
+
     if( OPENAI_API_KEY == "" ) {
         error_log("Could not read api key, save it in a notecard named ~api_key in the same object as the script");
         return FALSE;
@@ -235,14 +255,55 @@ integer init_api() {
     + "If user talks about your appearance, assume you have a physical appearance."
     + "To register an avatar, users need to register on our website, then they will get the details to add the grid on OpenSimulator viewer. "
     + "Users see you as an avatar, so you do have a phyical appearance, and you can also do a lot of the things an avatar can do, like move, follow a user, join them, sit somewhere, be beautiful..."
-    + "If the grid owner asks you to remember or save something, repeat your last answer, prefixed by %save%"
+    // + "If the grid owner asks you to remember or save something, repeat your last answer, prefixed by %save%"
     + CONTEXT;
 
-    say("initializing");
-    string result = request_api(CONTEXT);
+    // string result = request_api(CONTEXT);
+    request_api("Hello, please shortly introduce yourself");
     last_interaction = llGetUnixTime();
 
     return TRUE;
+}
+
+get_config()
+{
+    OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+    LLM_MODEL = "gpt-3.5-turbo";
+    LLM_CHARACTER = "";
+    CONTEXT = "";
+    message_log = [];
+    
+    if(llGetInventoryType(configFile) != INVENTORY_NOTECARD) {
+        return;
+    }
+    list lines = llParseString2List(get_notecard(configFile), "\n", "");
+    integer count = llGetListLength(lines);
+    integer i = 0;
+    do
+    {
+        string line = llStringTrim(llList2String(lines, i), STRING_TRIM);
+        if( llGetSubString(line, 0, 1) != "//"
+        && llGetSubString(line, 0,0 ) != "#"
+        && llGetSubString(line, 0,0 ) != ";"
+        && llSubStringIndex(line, "=") > 0 )
+        {
+            list params = llParseString2List(line, ["="], []);
+            string var = llStringTrim(llList2String(params, 0), STRING_TRIM);
+            string val = llStringTrim(llList2String(params, 1), STRING_TRIM);
+            if(var == "OPENAI_API_URL") OPENAI_API_URL = val;
+            else if(var == "OPENAI_API_KEY") OPENAI_API_KEY = val;
+            else if(var == "LLM_MODEL") LLM_MODEL = val;
+            else if(var == "LLM_CHARACTER") LLM_CHARACTER = val;
+            else if(var == "MESSAGE_LIMIT") MESSAGE_LIMIT = (integer)val;
+            else if(var == "LOG_LIMIT") LOG_LIMIT = (integer)val;
+            // else if(var == "MAX_TOKENS") MAX_TOKENS = (integer)val;
+        }
+        i++;
+    }
+    while (i < count);
+
+    string api_key = first_line(get_notecard("~api_key"));
+    if(api_key != "") OPENAI_API_KEY = api_key;
 }
 
 string str_replace(string src, string from, string to)
@@ -269,7 +330,7 @@ default
 {
     state_entry()
     {
-        //Read API Key from notecard
+        //Read config and init API
         init_api();
         // llListen(0, "", NULL_KEY, "");
     }
@@ -314,11 +375,17 @@ default
         list jsonList = llJson2List(body);
         string json = body;
         if( llList2String(jsonList, 0) == "error" ) {
-            llOwnerSay("Error "
+            debug("Error "
              + llJsonGetValue(json, ["error","code"])
              +"\n"
              + llJsonGetValue(json, ["error","message"])
             );
+            return;
+        } else if( status != 200 ) {
+            say("Error " + status + ": " + body);
+            if( ! initialized ) {
+                request_api("Hello, please introduce yourself shortly");
+            }
             return;
         } else {
             string answer = llJsonGetValue(json, ["choices", 0, "message", "content"]);
@@ -338,13 +405,13 @@ default
                 if( ! initialized ) {
                     initialized = TRUE;
                     llListen( 0, "", NULL_KEY, "" );
-                    request_api("Hello, please introduce yourself");
-                    return;
+                    // request_api("Hello, please introduce yourself");
+                    // return;
                 }
                 string id = llJsonGetValue(json, ["id"]);
                 say(answer);
                 log_message("assistant", answer);
-
+                // debug(CONTEXT);
                 /**
                  * Debug code to watch tokens cost
                  */
@@ -364,7 +431,8 @@ default
 
     on_rez(integer start_param)
     {
-        init_api();
+        // init_api();
+        llResetScript();
     }
 
     /**
@@ -374,19 +442,22 @@ default
     // {
     //     debug("attached, reset");
     //     init_api();
+    //     llResetScript();
     // }
 
     changed(integer change)
     {
         if (change & CHANGED_INVENTORY)
         {
-            init_api();
+            // init_api();
+            llResetScript();
         }
 
         // Reset the object when its inventory changes
         if (change & CHANGED_LINK)
         {
-            init_api();
+            // init_api();
+            llResetScript();
         }
     }
 }
