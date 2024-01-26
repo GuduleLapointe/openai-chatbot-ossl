@@ -12,7 +12,7 @@
  *
  *
  * @creator Gudule Lapointe @speculoos.world:8002
- * @version 0.2.0
+ * @version 0.2.1
  * @language LSL
  * @requires OSSL
  * @license AGPLv3
@@ -91,6 +91,7 @@ integer initialized = FALSE;
 integer listening = TRUE;
 list message_log;
 float session_cost;
+string sent_request_id;
 
 string configFile = "~config";
 
@@ -109,7 +110,9 @@ say(string message) {
 
 debug(string message) {
     if(message == "") return;
-    llOwnerSay("/me debug: " + message);
+    // llInstantMessage(owner, "llInstantMessage DEBUG: " + message);
+    // llOwnerSay("/me llOwnerSay DEBUG: " + message);
+    llWhisper(0, "/me llWhisper DEBUG: " + message);
     // say("DEBUG: " + message);
 }
 
@@ -177,7 +180,7 @@ integer request_api(string message) {
     ];
     // if( ! initialized ) args += [ "max_tokens", 1 ];
     string json = llList2Json( JSON_OBJECT, args);
-    llHTTPRequest(OPENAI_API_URL, [
+    sent_request_id = llHTTPRequest(OPENAI_API_URL, [
         HTTP_METHOD, "POST",
         HTTP_MIMETYPE, "application/json",
         HTTP_CUSTOM_HEADER, "Authorization", "Bearer " + OPENAI_API_KEY
@@ -371,9 +374,23 @@ default
     //Handle response from OpenAI
     http_response(key request_id, integer status, list metadata, string body)
     {
+        if(request_id != sent_request_id) {
+            // Not the answer to the last request.
+            // Although this method should discard some answers if multiple rapid messages are
+            // sent rapidly, the older request was saved in the messages history, which is sent
+            // with any message, so the ai seems to process all unprocessed messages anyway.
+            return;
+        }
         //Parse the response
         list jsonList = llJson2List(body);
         string json = body;
+        // debug(status + "
+        // sent_request_id " + sent_request_id + "
+        // request_id " + request_id + "
+        // metadata " + metadata + "
+        // body " + body + "
+        // jsonList " + jsonList
+        // );
         if( llList2String(jsonList, 0) == "error" ) {
             debug("Error "
              + llJsonGetValue(json, ["error","code"])
@@ -382,9 +399,11 @@ default
             );
             return;
         } else if( status != 200 ) {
-            say("Error " + status + ": " + body);
-            if( ! initialized ) {
-                request_api("Hello, please introduce yourself shortly");
+            if( body != "" ) {
+                say("Error " + status + ": " + body);
+                if( ! initialized ) {
+                    request_api("Hello, please introduce yourself shortly");
+                }
             }
             return;
         } else {
@@ -400,7 +419,8 @@ default
             }
             answer = str_replace(answer, "%follow%", "");
             answer = str_replace(answer, "%sit%", "");
-
+            answer = llStringTrim(answer, STRING_TRIM);
+            
             if(answer != "" ) {
                 if( ! initialized ) {
                     initialized = TRUE;
