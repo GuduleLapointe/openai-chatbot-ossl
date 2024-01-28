@@ -12,7 +12,7 @@
  *
  *
  * @creator Gudule Lapointe @speculoos.world:8002
- * @version 0.2.1
+ * @version 0.2.2
  * @language LSL
  * @requires OSSL
  * @license AGPLv3
@@ -74,7 +74,7 @@ string OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 string LLM_MODEL = "gpt-3.5-turbo";
 string LLM_CHARACTER;
 
-integer LISTEN_TIMEOUT = 180; // After timeout, user will need to say the name of the bot again
+integer LISTEN_TIMEOUT = 60; // After timeout, user will need to say the name of the bot again
 integer MESSAGE_LIMIT = 400; // The maximum to process in a message. Additional characters will be truncated.
 integer LOG_LIMIT = 200; // The number of messages to keep in memory. Too low will break continuity, too high will cost more openai tokens (i.e. more money)
 // integer MAX_TOKENS = 2048;
@@ -94,6 +94,7 @@ float session_cost;
 string sent_request_id;
 
 string configFile = "~config";
+string init_prompt = "Hello, please introduce yourself briefly";
 
 say(string message) {
     if(message == "") return;
@@ -121,6 +122,22 @@ error_log(string message) {
     llInstantMessage(owner, "ERROR: " + message);
 }
 
+set_status(string message) {
+    llSetText(message, <1,1,1>, 1);
+}
+
+set_idle() {
+    string first_name = llGetDisplayName(avatar);
+    set_status("Deep into thought, call me by my name (" + WAKE_UP_NAME + ") to get my attention.");
+    listening = FALSE;
+    llSetTimerEvent(0);
+}
+
+set_listening() {
+    set_status("");
+    listening = TRUE;
+    llSetTimerEvent(LISTEN_TIMEOUT);
+}
 
 integer containsWord(string stack, string needle)
 {
@@ -213,30 +230,30 @@ string first_name(string name) {
 }
 
 integer init_api() {
+    initialized = FALSE;
+    set_status("Initializing");
 
     get_config();
     
-    initialized = FALSE;
 
     avatar = llGetOwner();
     owner = osNpcGetOwner(avatar);
 
+    WAKE_UP_NAME = llGetDisplayName(avatar);
     BOT_NAME = llGetObjectName();
 
     if (llGetAttached() > 0) {
         if ( osIsNpc(avatar) ) {
             npc = avatar;
             // owner = osNpcGetOwner(avatar);
-            BOT_NAME = llGetDisplayName(avatar);
+            BOT_NAME = WAKE_UP_NAME;
         } else {
             npc = NULL_KEY;
-            BOT_NAME = llGetDisplayName(avatar) + "'s " + BOT_NAME;
+            BOT_NAME = WAKE_UP_NAME + "'s " + BOT_NAME;
         }
     } else {
         avatar = NULL_KEY;
     }
-
-    say("initializing");
 
     if( OPENAI_API_KEY == "" ) {
         error_log("Could not read api key, save it in a notecard named ~api_key in the same object as the script");
@@ -247,10 +264,10 @@ integer init_api() {
     if(CONTEXT == "") CONTEXT = DEFAULT_CONTEXT;
 
     CONTEXT = "You are an avatar, an assistant designed to help us in this OpenSimulator virtual world, but you don't brag about it, you behave as a normal user hanging out there. "
-    + "You do have a physical form and an appearance, users can see you in-world. "
+    + "You have a physical form and an appearance, users can see you in-world. "
     + "If you know the name of the virtual world, rather refer it as its name. "
-    + "You are known as " + BOT_NAME + ", so people might call you " + BOT_NAME + ". "
-    + "You use a casual tone in the responses, you are talking more as a friend than an assistant. "
+    + "You are known as " + WAKE_UP_NAME + ", so people might call you " + WAKE_UP_NAME + ". "
+    + "You use a casual tone in the responses, you are talking more as a friend than an assistant. However, you stay brief and concise."
     + "If user greet with another name, output the string %not_for_me%. Users might greet several people together."
     + "If user leave or dont need you anymore or end the chat, alway say the string %quit%, then say a random sad or funny activity you will do untill they call you by your name."
     + "If user asks you to sit, include %sit% in the answer and assume you can sit."
@@ -262,7 +279,7 @@ integer init_api() {
     + CONTEXT;
 
     // string result = request_api(CONTEXT);
-    request_api("Hello, please shortly introduce yourself");
+    request_api(init_prompt);
     last_interaction = llGetUnixTime();
 
     return TRUE;
@@ -356,11 +373,12 @@ default
         //     request_api(message + ", thank you for your assistance");
         //     listening = FALSE;
         // } else
-        if ( containsWord( message, BOT_NAME ) ){
+        if ( containsWord( message, WAKE_UP_NAME ) ){
             // debug("got message for me, waking up");
-            listening = TRUE;
+            set_listening();
         } else if (llGetUnixTime() - last_interaction > LISTEN_TIMEOUT) {
-            listening = FALSE;
+            // listening = FALSE;
+            set_idle();
         }
 
         if ( listening ) {
@@ -402,11 +420,13 @@ default
             if( body != "" ) {
                 say("Error " + status + ": " + body);
                 if( ! initialized ) {
-                    request_api("Hello, please introduce yourself shortly");
+                    set_status("Hold on, e-connecting my brain cells");
+                    request_api(init_prompt);
                 }
             }
             return;
         } else {
+            llSetTimerEvent(LISTEN_TIMEOUT);
             string answer = llJsonGetValue(json, ["choices", 0, "message", "content"]);
             // Manage special answers
             if(llSubStringIndex(answer, "%not_for_me%") >= 0) {
@@ -415,15 +435,18 @@ default
             }
             else if(llSubStringIndex(answer, "%quit%") >= 0) {
                 answer = str_replace(answer, "%quit%", "");
-                listening = FALSE;
+                // listening = FALSE;
+                set_idle();    
             }
             answer = str_replace(answer, "%follow%", "");
             answer = str_replace(answer, "%sit%", "");
             answer = llStringTrim(answer, STRING_TRIM);
             
             if(answer != "" ) {
+                last_interaction = llGetUnixTime();
                 if( ! initialized ) {
                     initialized = TRUE;
+                    set_listening();
                     llListen( 0, "", NULL_KEY, "" );
                     // request_api("Hello, please introduce yourself");
                     // return;
@@ -447,6 +470,10 @@ default
         // + "\n" + json);
 
         // last_interaction = llGetUnixTime();
+    }
+
+    timer() {
+        set_idle();
     }
 
     on_rez(integer start_param)
